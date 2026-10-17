@@ -2,35 +2,74 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BarChart3, Boxes, Check, CircleDollarSign, Megaphone, Menu,
-  PackagePlus, Plus, ReceiptText, Save, Search, ShoppingBag,
-  Trash2, TrendingDown, TrendingUp, X,
+  BarChart3,
+  Boxes,
+  Check,
+  CircleDollarSign,
+  Megaphone,
+  Menu,
+  PackagePlus,
+  Plus,
+  ReceiptText,
+  Save,
+  Search,
+  ShoppingBag,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  X,
 } from "lucide-react";
 import { defaultState } from "./seed";
 import type { AdSpend, AppState, Order, Product } from "./types";
 
 type Tab = "overview" | "orders" | "products" | "ads" | "daily";
-type DailyRow = { date: string; newOrders: number; orderValue: number; revenue: number; cogs: number; ads: number; shipping: number; fees: number; profit: number; capitalIn: number; cashFlow: number };
+type DailyRow = {
+  date: string;
+  newOrders: number;
+  orderValue: number;
+  revenue: number;
+  cogs: number;
+  ads: number;
+  shipping: number;
+  fees: number;
+  profit: number;
+  capitalIn: number;
+  cashFlow: number;
+};
 
 const money = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 });
 const fmt = (value: number) => `${money.format(Math.round(value || 0))}đ`;
 const num = (value: string | number) => Number(value) || 0;
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-const inMonth = (date: string, month: string) => Boolean(date && date.startsWith(month));
-const isEffective = (order: Order) => order.status !== "Đã hủy" && order.quantity > 0;
-const isCollected = (order: Order) => order.status === "Đã giao" && order.payment === "Đã thanh toán";
+const inMonth = (date: string, month: string) =>
+  Boolean(date && date.startsWith(month));
+const isEffective = (order: Order) =>
+  order.status !== "Đã hủy" && order.quantity > 0;
+const isCollected = (order: Order) =>
+  order.status === "Đã giao" && order.payment === "Đã thanh toán";
 
-function productFor(products: Product[], sku: string) { return products.find((p) => p.sku === sku); }
+function productFor(products: Product[], sku: string) {
+  return products.find((p) => p.sku === sku);
+}
 function orderTotal(order: Order, products: Product[]) {
-  return order.quantity * (productFor(products, order.sku)?.salePrice ?? 0) + order.shippingFee;
+  return (
+    order.quantity * (productFor(products, order.sku)?.salePrice ?? 0) +
+    order.shippingFee
+  );
 }
 function collectedRevenue(order: Order, products: Product[]) {
-  return isCollected(order) ? Math.max(0, orderTotal(order, products) - order.deposit) : 0;
+  return isCollected(order)
+    ? Math.max(0, orderTotal(order, products) - order.deposit)
+    : 0;
 }
 function orderCost(order: Order, products: Product[]) {
-  return isCollected(order) ? order.quantity * (productFor(products, order.sku)?.unitCost ?? 0) : 0;
+  return isCollected(order)
+    ? order.quantity * (productFor(products, order.sku)?.unitCost ?? 0)
+    : 0;
 }
-function recognitionDate(order: Order) { return order.collectedDate || order.orderDate; }
+function recognitionDate(order: Order) {
+  return order.collectedDate || order.orderDate;
+}
 
 const nav: { id: Tab; label: string; icon: typeof BarChart3 }[] = [
   { id: "overview", label: "Tổng quan", icon: BarChart3 },
@@ -45,7 +84,9 @@ export default function SalesApp() {
   const [tab, setTab] = useState<Tab>("overview");
   const [month, setMonth] = useState("2026-10");
   const [loading, setLoading] = useState(true);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveState, setSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
   const [menuOpen, setMenuOpen] = useState(false);
   const [modal, setModal] = useState<"order" | "product" | "ad" | null>(null);
   const [search, setSearch] = useState("");
@@ -54,119 +95,1492 @@ export default function SalesApp() {
 
   useEffect(() => {
     fetch("/api/state", { cache: "no-store" })
-      .then((r) => r.json()).then((payload) => payload.state && setData(payload.state))
-      .catch(() => undefined).finally(() => { loaded.current = true; setLoading(false); });
+      .then((r) => r.json() as Promise<{ state?: AppState }>)
+      .then((payload) => {
+        if (payload.state) setData(payload.state);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        loaded.current = true;
+        setLoading(false);
+      });
   }, []);
-  useEffect(() => {
-    if (!loaded.current) return;
+useEffect(() => {
+  try {
+    const saved = window.localStorage.getItem("aura-sales-state");
+    if (saved) setData(JSON.parse(saved) as AppState);
+  } catch {
+    // Dùng dữ liệu mặc định
+  }
+
+  loaded.current = true;
+  setLoading(false);
+}, []);
+
+useEffect(() => {
+  if (!loaded.current) return;
+  if (timer.current) clearTimeout(timer.current);
+
+  setSaveState("saving");
+
+  timer.current = setTimeout(() => {
+    try {
+      window.localStorage.setItem("aura-sales-state", JSON.stringify(data));
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  }, 650);
+
+  return () => {
     if (timer.current) clearTimeout(timer.current);
-    setSaveState("saving");
-    timer.current = setTimeout(async () => {
-      try {
-        const response = await fetch("/api/state", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
-        if (!response.ok) throw new Error("save failed");
-        setSaveState("saved");
-      } catch { setSaveState("error"); }
-    }, 650);
-    return () => { if (timer.current) clearTimeout(timer.current); };
-  }, [data]);
+  };
+}, [data]);
 
   const derived = useMemo(() => calculate(data, month), [data, month]);
   const pageTitle = nav.find((item) => item.id === tab)?.label ?? "Tổng quan";
 
   return (
     <div className="min-h-screen bg-[#f4f2ea] text-[#16322b]">
-      <aside className={`fixed inset-y-0 left-0 z-40 w-[248px] border-r border-white/10 bg-[#123d32] text-white transition-transform lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 w-[248px] border-r border-white/10 bg-[#123d32] text-white transition-transform lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}
+      >
         <div className="flex h-20 items-center gap-3 border-b border-white/10 px-6">
-          <div className="grid h-10 w-10 place-items-center rounded-full border border-[#e4c691]/60 bg-[#f8f1df] font-serif text-lg text-[#123d32]">A</div>
-          <div><p className="font-serif text-lg tracking-wide">AURA L’AMOUR</p><p className="text-[10px] uppercase tracking-[.22em] text-[#d9c59b]">Sales manager</p></div>
+          <div className="grid h-10 w-10 place-items-center rounded-full border border-[#e4c691]/60 bg-[#f8f1df] font-serif text-lg text-[#123d32]">
+            A
+          </div>
+          <div>
+            <p className="font-serif text-lg tracking-wide">AURA L’AMOUR</p>
+            <p className="text-[10px] uppercase tracking-[.22em] text-[#d9c59b]">
+              Sales manager
+            </p>
+          </div>
         </div>
-        <nav className="space-y-1 p-4">{nav.map((item) => <NavButton key={item.id} item={item} active={tab === item.id} onClick={() => { setTab(item.id); setMenuOpen(false); }} />)}</nav>
-        <div className="absolute bottom-5 left-4 right-4 rounded-2xl bg-white/8 p-4 text-xs leading-5 text-white/70"><p className="font-semibold text-white">Dữ liệu tự động lưu</p><p>Đơn giá lấy theo SKU. Đơn hủy tự trả lại tồn kho.</p></div>
+        <nav className="space-y-1 p-4">
+          {nav.map((item) => (
+            <NavButton
+              key={item.id}
+              item={item}
+              active={tab === item.id}
+              onClick={() => {
+                setTab(item.id);
+                setMenuOpen(false);
+              }}
+            />
+          ))}
+        </nav>
+        <div className="absolute bottom-5 left-4 right-4 rounded-2xl bg-white/8 p-4 text-xs leading-5 text-white/70">
+          <p className="font-semibold text-white">Dữ liệu tự động lưu</p>
+          <p>Đơn giá lấy theo SKU. Đơn hủy tự trả lại tồn kho.</p>
+        </div>
       </aside>
-      {menuOpen && <button aria-label="Đóng menu" className="fixed inset-0 z-30 bg-black/35 lg:hidden" onClick={() => setMenuOpen(false)} />}
+      {menuOpen && (
+        <button
+          aria-label="Đóng menu"
+          className="fixed inset-0 z-30 bg-black/35 lg:hidden"
+          onClick={() => setMenuOpen(false)}
+        />
+      )}
 
       <main className="min-h-screen pb-24 lg:ml-[248px] lg:pb-8">
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-black/5 bg-[#f4f2ea]/92 px-4 backdrop-blur-lg sm:px-7 lg:h-20">
-          <div className="flex items-center gap-3"><button className="rounded-xl border border-black/10 bg-white p-2 lg:hidden" onClick={() => setMenuOpen(true)} aria-label="Mở menu"><Menu size={20} /></button><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#9a7b49]">Quản lý kinh doanh</p><h1 className="font-serif text-xl font-semibold sm:text-2xl">{pageTitle}</h1></div></div>
-          <div className="flex items-center gap-2"><label className="hidden items-center gap-2 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm sm:flex">Tháng <input type="month" className="bg-transparent font-semibold outline-none" value={month} onChange={(e) => setMonth(e.target.value)} /></label><div className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs ${saveState === "error" ? "bg-red-50 text-red-700" : "bg-white text-[#587069]"}`}>{saveState === "saving" ? <Save size={14} className="animate-pulse" /> : <Check size={14} />}<span className="hidden sm:inline">{saveState === "saving" ? "Đang lưu" : saveState === "error" ? "Lỗi lưu" : "Đã lưu"}</span></div></div>
+          <div className="flex items-center gap-3">
+            <button
+              className="rounded-xl border border-black/10 bg-white p-2 lg:hidden"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Mở menu"
+            >
+              <Menu size={20} />
+            </button>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#9a7b49]">
+                Quản lý kinh doanh
+              </p>
+              <h1 className="font-serif text-xl font-semibold sm:text-2xl">
+                {pageTitle}
+              </h1>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="hidden items-center gap-2 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm sm:flex">
+              Tháng{" "}
+              <input
+                type="month"
+                className="bg-transparent font-semibold outline-none"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+              />
+            </label>
+            <div
+              className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs ${saveState === "error" ? "bg-red-50 text-red-700" : "bg-white text-[#587069]"}`}
+            >
+              {saveState === "saving" ? (
+                <Save size={14} className="animate-pulse" />
+              ) : (
+                <Check size={14} />
+              )}
+              <span className="hidden sm:inline">
+                {saveState === "saving"
+                  ? "Đang lưu"
+                  : saveState === "error"
+                    ? "Lỗi lưu"
+                    : "Đã lưu"}
+              </span>
+            </div>
+          </div>
         </header>
         <section className="mx-auto max-w-[1500px] p-4 sm:p-7">
-          <label className="mb-4 flex items-center justify-between rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm sm:hidden">Tháng báo cáo <input type="month" className="bg-transparent font-semibold outline-none" value={month} onChange={(e) => setMonth(e.target.value)} /></label>
-          {loading ? <Loading /> : tab === "overview" ? <Overview d={derived} month={month} onAdd={() => setModal("order")} />
-            : tab === "orders" ? <Orders data={data} setData={setData} search={search} setSearch={setSearch} onAdd={() => setModal("order")} />
-            : tab === "products" ? <Products data={data} setData={setData} onAdd={() => setModal("product")} />
-            : tab === "ads" ? <Ads data={data} setData={setData} month={month} onAdd={() => setModal("ad")} />
-            : <Daily rows={derived.daily} totals={derived} />}
+          <label className="mb-4 flex items-center justify-between rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm sm:hidden">
+            Tháng báo cáo{" "}
+            <input
+              type="month"
+              className="bg-transparent font-semibold outline-none"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+            />
+          </label>
+          {loading ? (
+            <Loading />
+          ) : tab === "overview" ? (
+            <Overview
+              d={derived}
+              month={month}
+              onAdd={() => setModal("order")}
+            />
+          ) : tab === "orders" ? (
+            <Orders
+              data={data}
+              setData={setData}
+              search={search}
+              setSearch={setSearch}
+              onAdd={() => setModal("order")}
+            />
+          ) : tab === "products" ? (
+            <Products
+              data={data}
+              setData={setData}
+              onAdd={() => setModal("product")}
+            />
+          ) : tab === "ads" ? (
+            <Ads
+              data={data}
+              setData={setData}
+              month={month}
+              onAdd={() => setModal("ad")}
+            />
+          ) : (
+            <Daily rows={derived.daily} totals={derived} />
+          )}
         </section>
       </main>
-      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-black/10 bg-white/95 px-1 pb-[max(6px,env(safe-area-inset-bottom))] pt-1 backdrop-blur lg:hidden">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} onClick={() => setTab(item.id)} className={`flex flex-col items-center gap-1 rounded-xl py-2 text-[10px] ${tab === item.id ? "bg-[#e5eee8] font-semibold text-[#123d32]" : "text-[#6f7f79]"}`}><Icon size={18} />{item.label.replace("Chi phí ", "")}</button>; })}</nav>
-      {modal === "order" && <OrderModal products={data.products} onClose={() => setModal(null)} onSave={(order) => { setData((s) => ({ ...s, orders: [...s.orders, order] })); setModal(null); }} />}
-      {modal === "product" && <ProductModal onClose={() => setModal(null)} onSave={(product) => { setData((s) => ({ ...s, products: [...s.products, product] })); setModal(null); }} />}
-      {modal === "ad" && <AdModal onClose={() => setModal(null)} onSave={(ad) => { setData((s) => ({ ...s, ads: [...s.ads, ad] })); setModal(null); }} />}
+      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-black/10 bg-white/95 px-1 pb-[max(6px,env(safe-area-inset-bottom))] pt-1 backdrop-blur lg:hidden">
+        {nav.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setTab(item.id)}
+              className={`flex flex-col items-center gap-1 rounded-xl py-2 text-[10px] ${tab === item.id ? "bg-[#e5eee8] font-semibold text-[#123d32]" : "text-[#6f7f79]"}`}
+            >
+              <Icon size={18} />
+              {item.label.replace("Chi phí ", "")}
+            </button>
+          );
+        })}
+      </nav>
+      {modal === "order" && (
+        <OrderModal
+          products={data.products}
+          onClose={() => setModal(null)}
+          onSave={(order) => {
+            setData((s) => ({ ...s, orders: [...s.orders, order] }));
+            setModal(null);
+          }}
+        />
+      )}
+      {modal === "product" && (
+        <ProductModal
+          onClose={() => setModal(null)}
+          onSave={(product) => {
+            setData((s) => ({ ...s, products: [...s.products, product] }));
+            setModal(null);
+          }}
+        />
+      )}
+      {modal === "ad" && (
+        <AdModal
+          onClose={() => setModal(null)}
+          onSave={(ad) => {
+            setData((s) => ({ ...s, ads: [...s.ads, ad] }));
+            setModal(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function NavButton({ item, active, onClick }: { item: (typeof nav)[number]; active: boolean; onClick: () => void }) { const Icon = item.icon; return <button onClick={onClick} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm transition ${active ? "bg-[#f3e9d5] font-semibold text-[#123d32]" : "text-white/72 hover:bg-white/8 hover:text-white"}`}><Icon size={19} />{item.label}</button>; }
-function Loading() { return <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[1,2,3,4].map((i) => <div key={i} className="h-32 animate-pulse rounded-3xl bg-white/70" />)}</div>; }
+function NavButton({
+  item,
+  active,
+  onClick,
+}: {
+  item: (typeof nav)[number];
+  active: boolean;
+  onClick: () => void;
+}) {
+  const Icon = item.icon;
+  return (
+    <button
+      onClick={onClick}
+      className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm transition ${active ? "bg-[#f3e9d5] font-semibold text-[#123d32]" : "text-white/72 hover:bg-white/8 hover:text-white"}`}
+    >
+      <Icon size={19} />
+      {item.label}
+    </button>
+  );
+}
+function Loading() {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="h-32 animate-pulse rounded-3xl bg-white/70" />
+      ))}
+    </div>
+  );
+}
 
 function calculate(data: AppState, month: string) {
-  const effectiveOrders = data.orders.filter((o) => isEffective(o) && inMonth(o.orderDate, month));
-  const collected = data.orders.filter((o) => isCollected(o) && inMonth(recognitionDate(o), month));
-  const revenue = collected.reduce((s, o) => s + collectedRevenue(o, data.products), 0);
+  const effectiveOrders = data.orders.filter(
+    (o) => isEffective(o) && inMonth(o.orderDate, month),
+  );
+  const collected = data.orders.filter(
+    (o) => isCollected(o) && inMonth(recognitionDate(o), month),
+  );
+  const revenue = collected.reduce(
+    (s, o) => s + collectedRevenue(o, data.products),
+    0,
+  );
   const deposits = collected.reduce((s, o) => s + o.deposit, 0);
   const cogs = collected.reduce((s, o) => s + orderCost(o, data.products), 0);
   const shipping = collected.reduce((s, o) => s + o.actualShipping, 0);
   const fees = collected.reduce((s, o) => s + o.platformFee, 0);
-  const ads = data.ads.filter((a) => inMonth(a.date, month)).reduce((s, a) => s + a.actualSpend, 0);
-  const capitalIn = data.products.filter((p) => inMonth(p.importDate, month)).reduce((s, p) => s + p.quantityIn * p.unitCost, 0);
+  const ads = data.ads
+    .filter((a) => inMonth(a.date, month))
+    .reduce((s, a) => s + a.actualSpend, 0);
+  const capitalIn = data.products
+    .filter((p) => inMonth(p.importDate, month))
+    .reduce((s, p) => s + p.quantityIn * p.unitCost, 0);
   const profit = revenue - cogs - shipping - fees - ads;
   const cashFlow = revenue - shipping - fees - ads - capitalIn;
-  const stockUnits = data.products.reduce((s, p) => s + Math.max(0, p.quantityIn - data.orders.filter((o) => o.sku === p.sku && isEffective(o)).reduce((x, o) => x + o.quantity, 0)), 0);
-  const days = new Set<string>([...data.orders.filter((o) => inMonth(o.orderDate, month)).map((o) => o.orderDate), ...data.orders.filter((o) => inMonth(recognitionDate(o), month)).map(recognitionDate), ...data.ads.filter((a) => inMonth(a.date, month)).map((a) => a.date), ...data.products.filter((p) => inMonth(p.importDate, month)).map((p) => p.importDate)]);
+  const stockUnits = data.products.reduce(
+    (s, p) =>
+      s +
+      Math.max(
+        0,
+        p.quantityIn -
+          data.orders
+            .filter((o) => o.sku === p.sku && isEffective(o))
+            .reduce((x, o) => x + o.quantity, 0),
+      ),
+    0,
+  );
+  const days = new Set<string>([
+    ...data.orders
+      .filter((o) => inMonth(o.orderDate, month))
+      .map((o) => o.orderDate),
+    ...data.orders
+      .filter((o) => inMonth(recognitionDate(o), month))
+      .map(recognitionDate),
+    ...data.ads.filter((a) => inMonth(a.date, month)).map((a) => a.date),
+    ...data.products
+      .filter((p) => inMonth(p.importDate, month))
+      .map((p) => p.importDate),
+  ]);
   const daily: DailyRow[] = [...days].sort().map((date) => {
-    const newOrders = data.orders.filter((o) => o.orderDate === date && isEffective(o)); const paidOrders = data.orders.filter((o) => recognitionDate(o) === date && isCollected(o));
-    const dRevenue = paidOrders.reduce((s, o) => s + collectedRevenue(o, data.products), 0); const dCogs = paidOrders.reduce((s, o) => s + orderCost(o, data.products), 0); const dShipping = paidOrders.reduce((s, o) => s + o.actualShipping, 0); const dFees = paidOrders.reduce((s, o) => s + o.platformFee, 0); const dAds = data.ads.filter((a) => a.date === date).reduce((s, a) => s + a.actualSpend, 0); const dCapital = data.products.filter((p) => p.importDate === date).reduce((s, p) => s + p.quantityIn * p.unitCost, 0);
-    return { date, newOrders: newOrders.length, orderValue: newOrders.reduce((s, o) => s + orderTotal(o, data.products), 0), revenue: dRevenue, cogs: dCogs, ads: dAds, shipping: dShipping, fees: dFees, profit: dRevenue - dCogs - dAds - dShipping - dFees, capitalIn: dCapital, cashFlow: dRevenue - dAds - dShipping - dFees - dCapital };
+    const newOrders = data.orders.filter(
+      (o) => o.orderDate === date && isEffective(o),
+    );
+    const paidOrders = data.orders.filter(
+      (o) => recognitionDate(o) === date && isCollected(o),
+    );
+    const dRevenue = paidOrders.reduce(
+      (s, o) => s + collectedRevenue(o, data.products),
+      0,
+    );
+    const dCogs = paidOrders.reduce(
+      (s, o) => s + orderCost(o, data.products),
+      0,
+    );
+    const dShipping = paidOrders.reduce((s, o) => s + o.actualShipping, 0);
+    const dFees = paidOrders.reduce((s, o) => s + o.platformFee, 0);
+    const dAds = data.ads
+      .filter((a) => a.date === date)
+      .reduce((s, a) => s + a.actualSpend, 0);
+    const dCapital = data.products
+      .filter((p) => p.importDate === date)
+      .reduce((s, p) => s + p.quantityIn * p.unitCost, 0);
+    return {
+      date,
+      newOrders: newOrders.length,
+      orderValue: newOrders.reduce(
+        (s, o) => s + orderTotal(o, data.products),
+        0,
+      ),
+      revenue: dRevenue,
+      cogs: dCogs,
+      ads: dAds,
+      shipping: dShipping,
+      fees: dFees,
+      profit: dRevenue - dCogs - dAds - dShipping - dFees,
+      capitalIn: dCapital,
+      cashFlow: dRevenue - dAds - dShipping - dFees - dCapital,
+    };
   });
-  return { revenue, deposits, cogs, shipping, fees, ads, capitalIn, profit, cashFlow, stockUnits, effectiveOrders: effectiveOrders.length, collectedOrders: collected.length, canceled: data.orders.filter((o) => o.status === "Đã hủy" && inMonth(o.orderDate, month)).length, roas: ads ? revenue / ads : 0, margin: revenue ? profit / revenue : 0, daily };
+  return {
+    revenue,
+    deposits,
+    cogs,
+    shipping,
+    fees,
+    ads,
+    capitalIn,
+    profit,
+    cashFlow,
+    stockUnits,
+    effectiveOrders: effectiveOrders.length,
+    collectedOrders: collected.length,
+    canceled: data.orders.filter(
+      (o) => o.status === "Đã hủy" && inMonth(o.orderDate, month),
+    ).length,
+    roas: ads ? revenue / ads : 0,
+    margin: revenue ? profit / revenue : 0,
+    daily,
+  };
 }
 type Derived = ReturnType<typeof calculate>;
 
-function Overview({ d, month, onAdd }: { d: Derived; month: string; onAdd: () => void }) {
+function Overview({
+  d,
+  month,
+  onAdd,
+}: {
+  d: Derived;
+  month: string;
+  onAdd: () => void;
+}) {
   const cards = [
-    { label: "Doanh thu đã thu", value: fmt(d.revenue), note: `Đã trừ cọc ${fmt(d.deposits)}`, icon: CircleDollarSign, tone: "green" },
-    { label: "Lợi nhuận theo đơn", value: fmt(d.profit), note: `${(d.margin * 100).toFixed(1)}% doanh thu`, icon: TrendingUp, tone: "gold" },
-    { label: "Dòng tiền sau mua hàng", value: fmt(d.cashFlow), note: `Vốn nhập tháng: ${fmt(d.capitalIn)}`, icon: d.cashFlow >= 0 ? TrendingUp : TrendingDown, tone: d.cashFlow >= 0 ? "green" : "red" },
-    { label: "Tồn kho hiện tại", value: `${money.format(d.stockUnits)} SP`, note: `${d.effectiveOrders} đơn còn hiệu lực`, icon: Boxes, tone: "blue" },
+    {
+      label: "Doanh thu đã thu",
+      value: fmt(d.revenue),
+      note: `Đã trừ cọc ${fmt(d.deposits)}`,
+      icon: CircleDollarSign,
+      tone: "green",
+    },
+    {
+      label: "Lợi nhuận theo đơn",
+      value: fmt(d.profit),
+      note: `${(d.margin * 100).toFixed(1)}% doanh thu`,
+      icon: TrendingUp,
+      tone: "gold",
+    },
+    {
+      label: "Dòng tiền sau mua hàng",
+      value: fmt(d.cashFlow),
+      note: `Vốn nhập tháng: ${fmt(d.capitalIn)}`,
+      icon: d.cashFlow >= 0 ? TrendingUp : TrendingDown,
+      tone: d.cashFlow >= 0 ? "green" : "red",
+    },
+    {
+      label: "Tồn kho hiện tại",
+      value: `${money.format(d.stockUnits)} SP`,
+      note: `${d.effectiveOrders} đơn còn hiệu lực`,
+      icon: Boxes,
+      tone: "blue",
+    },
   ];
-  return <div className="space-y-6"><div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm text-[#687b74]">Báo cáo tháng {month.split("-").reverse().join("/")}</p><h2 className="font-serif text-2xl font-semibold sm:text-3xl">Tình hình kinh doanh</h2></div><button onClick={onAdd} className="primary-button"><Plus size={18}/>Tạo đơn mới</button></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map((c) => <MetricCard key={c.label} {...c} />)}</div><div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]"><div className="panel"><div className="mb-5 flex items-center justify-between"><div><p className="eyebrow">7 ngày có phát sinh</p><h3 className="section-title">Doanh thu & lợi nhuận</h3></div><span className="rounded-full bg-[#e5eee8] px-3 py-1 text-xs font-semibold">ROAS {d.roas.toFixed(2)}x</span></div><MiniBars rows={d.daily.slice(-7)} /></div><div className="panel"><p className="eyebrow">Đối soát tháng</p><h3 className="section-title mb-5">Chi phí & trạng thái</h3><div className="space-y-4"><Breakdown label="Giá vốn đã bán" value={d.cogs} total={Math.max(d.revenue,1)} /><Breakdown label="Ads thực chi" value={d.ads} total={Math.max(d.revenue,1)} /><Breakdown label="Ship & phí sàn" value={d.shipping + d.fees} total={Math.max(d.revenue,1)} /></div><div className="mt-6 grid grid-cols-3 gap-2 border-t border-black/8 pt-5 text-center"><SmallStat label="Đã thu" value={d.collectedOrders}/><SmallStat label="Đã hủy" value={d.canceled}/><SmallStat label="Tồn kho" value={d.stockUnits}/></div></div></div><div className="rounded-2xl border border-[#d6b878]/35 bg-[#fff8e9] p-4 text-sm text-[#6f5422]"><strong>Lưu ý:</strong> Lợi nhuận dùng giá vốn của hàng đã bán. Dòng tiền dùng toàn bộ vốn nhập trong tháng nên có thể âm khi vừa nhập nhiều hàng — đây là hai chỉ số khác nhau.</div></div>;
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm text-[#687b74]">
+            Báo cáo tháng {month.split("-").reverse().join("/")}
+          </p>
+          <h2 className="font-serif text-2xl font-semibold sm:text-3xl">
+            Tình hình kinh doanh
+          </h2>
+        </div>
+        <button onClick={onAdd} className="primary-button">
+          <Plus size={18} />
+          Tạo đơn mới
+        </button>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.map((c) => (
+          <MetricCard key={c.label} {...c} />
+        ))}
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
+        <div className="panel">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <p className="eyebrow">7 ngày có phát sinh</p>
+              <h3 className="section-title">Doanh thu & lợi nhuận</h3>
+            </div>
+            <span className="rounded-full bg-[#e5eee8] px-3 py-1 text-xs font-semibold">
+              ROAS {d.roas.toFixed(2)}x
+            </span>
+          </div>
+          <MiniBars rows={d.daily.slice(-7)} />
+        </div>
+        <div className="panel">
+          <p className="eyebrow">Đối soát tháng</p>
+          <h3 className="section-title mb-5">Chi phí & trạng thái</h3>
+          <div className="space-y-4">
+            <Breakdown
+              label="Giá vốn đã bán"
+              value={d.cogs}
+              total={Math.max(d.revenue, 1)}
+            />
+            <Breakdown
+              label="Ads thực chi"
+              value={d.ads}
+              total={Math.max(d.revenue, 1)}
+            />
+            <Breakdown
+              label="Ship & phí sàn"
+              value={d.shipping + d.fees}
+              total={Math.max(d.revenue, 1)}
+            />
+          </div>
+          <div className="mt-6 grid grid-cols-3 gap-2 border-t border-black/8 pt-5 text-center">
+            <SmallStat label="Đã thu" value={d.collectedOrders} />
+            <SmallStat label="Đã hủy" value={d.canceled} />
+            <SmallStat label="Tồn kho" value={d.stockUnits} />
+          </div>
+        </div>
+      </div>
+      <div className="rounded-2xl border border-[#d6b878]/35 bg-[#fff8e9] p-4 text-sm text-[#6f5422]">
+        <strong>Lưu ý:</strong> Lợi nhuận dùng giá vốn của hàng đã bán. Dòng
+        tiền dùng toàn bộ vốn nhập trong tháng nên có thể âm khi vừa nhập nhiều
+        hàng — đây là hai chỉ số khác nhau.
+      </div>
+    </div>
+  );
 }
 
-function MetricCard({ label, value, note, icon: Icon, tone }: { label: string; value: string; note: string; icon: typeof TrendingUp; tone: string }) { const tones: Record<string,string> = { green:"bg-[#e5eee8] text-[#123d32]", gold:"bg-[#f4ead5] text-[#87682e]", red:"bg-[#fae7e3] text-[#a84335]", blue:"bg-[#e6edf0] text-[#315d6a]" }; return <div className="panel relative overflow-hidden"><div className={`mb-5 grid h-10 w-10 place-items-center rounded-2xl ${tones[tone]}`}><Icon size={20}/></div><p className="text-xs font-semibold uppercase tracking-[.1em] text-[#73827d]">{label}</p><p className="mt-1 font-serif text-2xl font-semibold sm:text-3xl">{value}</p><p className="mt-2 text-xs text-[#7a8984]">{note}</p></div>; }
-function MiniBars({ rows }: { rows: DailyRow[] }) { const max = Math.max(...rows.map((r) => Math.max(r.revenue, r.profit, 0)), 1); return <div className="flex h-52 items-end gap-3 overflow-x-auto pb-2">{rows.length ? rows.map((r) => <div key={r.date} className="flex min-w-[48px] flex-1 flex-col items-center gap-2"><div className="flex h-40 items-end gap-1"><span title={`Doanh thu ${fmt(r.revenue)}`} className="w-3 rounded-t bg-[#1f6b57]" style={{height:`${Math.max(3,r.revenue/max*100)}%`}}/><span title={`Lợi nhuận ${fmt(r.profit)}`} className={`w-3 rounded-t ${r.profit >= 0 ? "bg-[#d2ad67]" : "bg-[#c95f4f]"}`} style={{height:`${Math.max(3,Math.abs(r.profit)/max*100)}%`}}/></div><span className="text-[10px] text-[#7b8984]">{r.date.slice(8,10)}/{r.date.slice(5,7)}</span></div>) : <div className="m-auto text-sm text-[#7b8984]">Chưa có dữ liệu trong tháng</div>}</div>; }
-function Breakdown({ label, value, total }: { label: string; value: number; total: number }) { const pct = Math.min(100, value/total*100); return <div><div className="mb-1 flex justify-between text-sm"><span>{label}</span><strong>{fmt(value)}</strong></div><div className="h-2 overflow-hidden rounded-full bg-[#e8e6de]"><div className="h-full rounded-full bg-[#1f6b57]" style={{width:`${pct}%`}}/></div></div>; }
-function SmallStat({ label, value }: { label: string; value: number }) { return <div><p className="font-serif text-2xl font-semibold">{value}</p><p className="text-[10px] uppercase tracking-wide text-[#7a8984]">{label}</p></div>; }
-
-function Orders({ data, setData, search, setSearch, onAdd }: { data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; search: string; setSearch: (v:string)=>void; onAdd:()=>void }) {
-  const rows = data.orders.filter((o) => `${o.customer} ${o.phone} ${o.sku}`.toLowerCase().includes(search.toLowerCase())).slice().reverse(); const update = (id:string, patch:Partial<Order>) => setData((s) => ({...s, orders:s.orders.map((o)=>o.id===id?{...o,...patch}:o)})); const remove = (id:string) => setData((s) => ({...s, orders:s.orders.filter((o)=>o.id!==id)}));
-  return <div className="space-y-5"><Toolbar title="Danh sách đơn hàng" count={rows.length} search={search} onSearch={setSearch} addLabel="Tạo đơn" onAdd={onAdd}/><div className="hidden overflow-x-auto rounded-3xl border border-black/8 bg-white md:block"><table className="data-table min-w-[1180px]"><thead><tr><th>Ngày</th><th>Khách hàng</th><th>Địa chỉ</th><th>SKU</th><th>SL</th><th>Đơn giá</th><th>Cọc</th><th>Tổng đơn</th><th>Thanh toán</th><th>Trạng thái</th><th></th></tr></thead><tbody>{rows.map((o)=><tr key={o.id}><td>{o.orderDate.split("-").reverse().join("/")}</td><td><strong>{o.customer || "—"}</strong><small>{o.phone}</small></td><td className="max-w-[240px] whitespace-normal"><span>{o.address || "Chưa nhập địa chỉ"}</span></td><td><span className="sku">{o.sku}</span></td><td>{o.quantity}</td><td>{fmt(productFor(data.products,o.sku)?.salePrice ?? 0)}</td><td>{fmt(o.deposit)}</td><td><strong>{fmt(orderTotal(o,data.products))}</strong></td><td><select value={o.payment} onChange={(e)=>update(o.id,{payment:e.target.value as Order["payment"]})}><option>Chưa thanh toán</option><option>Đã thanh toán</option></select></td><td><select value={o.status} onChange={(e)=>update(o.id,{status:e.target.value as Order["status"], collectedDate:e.target.value==="Đã giao"?(o.collectedDate||new Date().toISOString().slice(0,10)):o.collectedDate})}>{["Đã đặt","Đang giao","Đã giao","Đã hủy"].map(x=><option key={x}>{x}</option>)}</select></td><td><button className="icon-button danger" onClick={()=>remove(o.id)} aria-label="Xóa"><Trash2 size={16}/></button></td></tr>)}</tbody></table></div><div className="grid gap-3 md:hidden">{rows.map((o)=><div key={o.id} className="panel !p-4"><div className="flex items-start justify-between gap-3"><div><span className="sku">{o.sku}</span><h3 className="mt-2 font-semibold">{o.customer||"Khách chưa nhập tên"}</h3><p className="text-xs text-[#7a8984]">{o.orderDate.split("-").reverse().join("/")} · {o.quantity} SP · {fmt(orderTotal(o,data.products))}</p><p className="mt-2 text-sm text-[#526861]">{o.address || "Chưa nhập địa chỉ"}</p></div><button className="icon-button danger" onClick={()=>remove(o.id)}><Trash2 size={16}/></button></div><div className="mt-4 grid grid-cols-2 gap-2"><select value={o.payment} onChange={(e)=>update(o.id,{payment:e.target.value as Order["payment"]})}><option>Chưa thanh toán</option><option>Đã thanh toán</option></select><select value={o.status} onChange={(e)=>update(o.id,{status:e.target.value as Order["status"],collectedDate:e.target.value==="Đã giao"?(o.collectedDate||new Date().toISOString().slice(0,10)):o.collectedDate})}>{["Đã đặt","Đang giao","Đã giao","Đã hủy"].map(x=><option key={x}>{x}</option>)}</select></div>{o.status==="Đã hủy"&&<p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">Đơn đã hủy, số lượng được trả lại tồn kho.</p>}</div>)}</div></div>;
+function MetricCard({
+  label,
+  value,
+  note,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  icon: typeof TrendingUp;
+  tone: string;
+}) {
+  const tones: Record<string, string> = {
+    green: "bg-[#e5eee8] text-[#123d32]",
+    gold: "bg-[#f4ead5] text-[#87682e]",
+    red: "bg-[#fae7e3] text-[#a84335]",
+    blue: "bg-[#e6edf0] text-[#315d6a]",
+  };
+  return (
+    <div className="panel relative overflow-hidden">
+      <div
+        className={`mb-5 grid h-10 w-10 place-items-center rounded-2xl ${tones[tone]}`}
+      >
+        <Icon size={20} />
+      </div>
+      <p className="text-xs font-semibold uppercase tracking-[.1em] text-[#73827d]">
+        {label}
+      </p>
+      <p className="mt-1 font-serif text-2xl font-semibold sm:text-3xl">
+        {value}
+      </p>
+      <p className="mt-2 text-xs text-[#7a8984]">{note}</p>
+    </div>
+  );
+}
+function MiniBars({ rows }: { rows: DailyRow[] }) {
+  const max = Math.max(...rows.map((r) => Math.max(r.revenue, r.profit, 0)), 1);
+  return (
+    <div className="flex h-52 items-end gap-3 overflow-x-auto pb-2">
+      {rows.length ? (
+        rows.map((r) => (
+          <div
+            key={r.date}
+            className="flex min-w-[48px] flex-1 flex-col items-center gap-2"
+          >
+            <div className="flex h-40 items-end gap-1">
+              <span
+                title={`Doanh thu ${fmt(r.revenue)}`}
+                className="w-3 rounded-t bg-[#1f6b57]"
+                style={{ height: `${Math.max(3, (r.revenue / max) * 100)}%` }}
+              />
+              <span
+                title={`Lợi nhuận ${fmt(r.profit)}`}
+                className={`w-3 rounded-t ${r.profit >= 0 ? "bg-[#d2ad67]" : "bg-[#c95f4f]"}`}
+                style={{
+                  height: `${Math.max(3, (Math.abs(r.profit) / max) * 100)}%`,
+                }}
+              />
+            </div>
+            <span className="text-[10px] text-[#7b8984]">
+              {r.date.slice(8, 10)}/{r.date.slice(5, 7)}
+            </span>
+          </div>
+        ))
+      ) : (
+        <div className="m-auto text-sm text-[#7b8984]">
+          Chưa có dữ liệu trong tháng
+        </div>
+      )}
+    </div>
+  );
+}
+function Breakdown({
+  label,
+  value,
+  total,
+}: {
+  label: string;
+  value: number;
+  total: number;
+}) {
+  const pct = Math.min(100, (value / total) * 100);
+  return (
+    <div>
+      <div className="mb-1 flex justify-between text-sm">
+        <span>{label}</span>
+        <strong>{fmt(value)}</strong>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-[#e8e6de]">
+        <div
+          className="h-full rounded-full bg-[#1f6b57]"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+function SmallStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <p className="font-serif text-2xl font-semibold">{value}</p>
+      <p className="text-[10px] uppercase tracking-wide text-[#7a8984]">
+        {label}
+      </p>
+    </div>
+  );
 }
 
-function Products({ data, setData, onAdd }: { data:AppState; setData:React.Dispatch<React.SetStateAction<AppState>>; onAdd:()=>void }) { const remove=(id:string)=>setData((s)=>({...s,products:s.products.filter((p)=>p.id!==id)})); return <div className="space-y-5"><Toolbar title="Sản phẩm & tồn kho" count={data.products.length} addLabel="Thêm SKU" onAdd={onAdd}/><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{data.products.map((p)=>{const ordered=data.orders.filter(o=>o.sku===p.sku&&isEffective(o)).reduce((s,o)=>s+o.quantity,0);const stock=Math.max(0,p.quantityIn-ordered);const paidOrders=data.orders.filter(o=>o.sku===p.sku&&isCollected(o));const revenue=paidOrders.reduce((s,o)=>s+collectedRevenue(o,data.products),0);const soldCost=paidOrders.reduce((s,o)=>s+o.quantity*p.unitCost,0);const orderExpenses=paidOrders.reduce((s,o)=>s+o.actualShipping+o.platformFee,0);const revenueAfterAds=revenue-p.plannedAds;const profitAfterAds=revenueAfterAds-soldCost-orderExpenses;return <article key={p.id} className="panel"><div className="flex justify-between"><div><span className="sku">{p.sku}</span><h3 className="mt-3 font-serif text-xl font-semibold">{p.name||"Chưa đặt tên"}</h3><p className="text-xs text-[#7a8984]">Nhập {p.importDate.split("-").reverse().join("/")}</p></div><button className="icon-button danger" onClick={()=>remove(p.id)}><Trash2 size={16}/></button></div><div className="my-5 grid grid-cols-3 gap-2 rounded-2xl bg-[#f6f5ef] p-3 text-center"><SmallStat label="Đã nhập" value={p.quantityIn}/><SmallStat label="Có đơn" value={ordered}/><SmallStat label="Tồn" value={stock}/></div><div className="space-y-2 text-sm"><Line label="Vốn / SP" value={fmt(p.unitCost)}/><Line label="Giá bán tự động" value={fmt(p.salePrice)}/><Line label="Vốn nhập" value={fmt(p.quantityIn*p.unitCost)}/><div className="my-3 border-t border-black/8"/><Line label="Doanh thu đã thu" value={fmt(revenue)}/><Line label="Ads phân bổ" value={fmt(p.plannedAds)}/><Line label="Doanh thu sau Ads" value={fmt(revenueAfterAds)}/><div className={`mt-3 rounded-xl px-3 py-2 ${profitAfterAds>=0?"bg-[#e5eee8] text-[#17624f]":"bg-red-50 text-[#b94739]"}`}><Line label="Lãi sau giá vốn & Ads" value={fmt(profitAfterAds)}/></div></div></article>})}</div></div>; }
-function Ads({ data, setData, month, onAdd }: { data:AppState; setData:React.Dispatch<React.SetStateAction<AppState>>;month:string;onAdd:()=>void }) { const rows=data.ads.filter(a=>inMonth(a.date,month)).slice().reverse();const total=rows.reduce((s,a)=>s+a.actualSpend,0);return <div className="space-y-5"><Toolbar title="Ngân sách quảng cáo" count={rows.length} addLabel="Thêm chi phí" onAdd={onAdd}/><div className="grid gap-4 sm:grid-cols-3"><MetricCard label="Ads thực chi" value={fmt(total)} note={`Trong tháng ${month.slice(5)}/${month.slice(0,4)}`} icon={Megaphone} tone="gold"/><MetricCard label="Ngân sách" value={fmt(rows.reduce((s,a)=>s+a.budget,0))} note="Tổng ngân sách đã nhập" icon={CircleDollarSign} tone="blue"/><MetricCard label="Chênh lệch" value={fmt(rows.reduce((s,a)=>s+a.budget-a.actualSpend,0))} note="Ngân sách còn lại" icon={TrendingUp} tone="green"/></div><div className="overflow-hidden rounded-3xl border border-black/8 bg-white"><table className="data-table"><thead><tr><th>Ngày</th><th>Kênh</th><th>Ngân sách</th><th>Thực chi</th><th></th></tr></thead><tbody>{rows.map(a=><tr key={a.id}><td>{a.date.split("-").reverse().join("/")}</td><td><strong>{a.channel}</strong></td><td>{fmt(a.budget)}</td><td>{fmt(a.actualSpend)}</td><td><button className="icon-button danger" onClick={()=>setData(s=>({...s,ads:s.ads.filter(x=>x.id!==a.id)}))}><Trash2 size={16}/></button></td></tr>)}</tbody></table></div></div>; }
-function Daily({ rows, totals }: { rows:DailyRow[];totals:Derived }) { return <div className="space-y-5"><div><p className="eyebrow">Đối chiếu theo ngày</p><h2 className="font-serif text-2xl font-semibold">Lợi nhuận và dòng tiền</h2></div><div className="overflow-x-auto rounded-3xl border border-black/8 bg-white"><table className="data-table min-w-[1080px]"><thead><tr><th>Ngày</th><th>Đơn mới</th><th>DT đơn mới</th><th>DT đã thu</th><th>Giá vốn bán</th><th>Ads</th><th>Ship</th><th>Phí sàn</th><th>Lãi theo đơn</th><th>Vốn nhập</th><th>Dòng tiền</th></tr></thead><tbody>{rows.map(r=><tr key={r.date}><td><strong>{r.date.split("-").reverse().join("/")}</strong></td><td>{r.newOrders}</td><td>{fmt(r.orderValue)}</td><td>{fmt(r.revenue)}</td><td>{fmt(r.cogs)}</td><td>{fmt(r.ads)}</td><td>{fmt(r.shipping)}</td><td>{fmt(r.fees)}</td><td className={r.profit<0?"negative":"positive"}>{fmt(r.profit)}</td><td>{fmt(r.capitalIn)}</td><td className={r.cashFlow<0?"negative":"positive"}>{fmt(r.cashFlow)}</td></tr>)}</tbody><tfoot><tr><td>TỔNG THÁNG</td><td>{totals.effectiveOrders}</td><td>—</td><td>{fmt(totals.revenue)}</td><td>{fmt(totals.cogs)}</td><td>{fmt(totals.ads)}</td><td>{fmt(totals.shipping)}</td><td>{fmt(totals.fees)}</td><td>{fmt(totals.profit)}</td><td>{fmt(totals.capitalIn)}</td><td>{fmt(totals.cashFlow)}</td></tr></tfoot></table></div></div>; }
-
-function Toolbar({title,count,search,onSearch,addLabel,onAdd}:{title:string;count:number;search?:string;onSearch?:(v:string)=>void;addLabel:string;onAdd:()=>void}) { return <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-serif text-2xl font-semibold">{title}</h2><p className="text-sm text-[#7a8984]">{count} mục</p></div><div className="flex gap-2">{onSearch&&<label className="flex flex-1 items-center gap-2 rounded-xl border border-black/10 bg-white px-3"><Search size={17}/><input className="w-full bg-transparent py-2.5 text-sm outline-none" value={search} onChange={e=>onSearch(e.target.value)} placeholder="Tìm tên, SĐT, SKU"/></label>}<button className="primary-button whitespace-nowrap" onClick={onAdd}><Plus size={17}/>{addLabel}</button></div></div>; }
-function Line({label,value}:{label:string;value:string}){return <div className="flex justify-between gap-4"><span className="text-[#76847f]">{label}</span><strong>{value}</strong></div>;}
-function ModalFrame({title,onClose,children}:{title:string;onClose:()=>void;children:React.ReactNode}){return <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#0b211b]/55 p-0 sm:items-center sm:p-5" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><div className="max-h-[92vh] w-full overflow-y-auto rounded-t-3xl bg-[#fbfaf6] p-5 shadow-2xl sm:max-w-2xl sm:rounded-3xl sm:p-7"><div className="mb-6 flex items-center justify-between"><div><p className="eyebrow">Nhập dữ liệu</p><h2 className="font-serif text-2xl font-semibold">{title}</h2></div><button className="icon-button" onClick={onClose}><X size={20}/></button></div>{children}</div></div>;}
-const fieldClass="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#1f6b57] focus:ring-2 focus:ring-[#1f6b57]/10";
-function Field({label,children,span=false}:{label:string;children:React.ReactNode;span?:boolean}){return <label className={span?"sm:col-span-2":""}><span className="mb-1.5 block text-xs font-semibold text-[#526861]">{label}</span>{children}</label>;}
-
-function OrderModal({products,onClose,onSave}:{products:Product[];onClose:()=>void;onSave:(o:Order)=>void}){
-  const [f,setF]=useState({orderDate:new Date().toISOString().slice(0,10),customer:"",phone:"",address:"",sku:products[0]?.sku||"",size:"",color:"",quantity:1,deposit:0,shippingFee:0,payment:"Chưa thanh toán" as Order["payment"],status:"Đã đặt" as Order["status"],actualShipping:0,platformFee:0,note:""}); const product=productFor(products,f.sku); const total=f.quantity*(product?.salePrice||0)+f.shippingFee; const submit=(e:React.FormEvent)=>{e.preventDefault();if(!f.sku||f.quantity<1)return;onSave({id:uid(),...f,productName:product?.name||"",collectedDate:f.status==="Đã giao"?f.orderDate:""});};
-  return <ModalFrame title="Tạo đơn hàng" onClose={onClose}><form onSubmit={submit} className="grid gap-4 sm:grid-cols-2"><Field label="Ngày đặt"><input required type="date" className={fieldClass} value={f.orderDate} onChange={e=>setF({...f,orderDate:e.target.value})}/></Field><Field label="Mã SKU"><select className={fieldClass} value={f.sku} onChange={e=>setF({...f,sku:e.target.value})}>{products.map(p=><option key={p.id} value={p.sku}>{p.sku} — {fmt(p.salePrice)}</option>)}</select></Field><Field label="Họ tên khách"><input className={fieldClass} value={f.customer} onChange={e=>setF({...f,customer:e.target.value})}/></Field><Field label="Số điện thoại"><input inputMode="tel" className={fieldClass} value={f.phone} onChange={e=>setF({...f,phone:e.target.value})}/></Field><Field label="Số lượng"><input required min="1" type="number" className={fieldClass} value={f.quantity} onChange={e=>setF({...f,quantity:num(e.target.value)})}/></Field><Field label="Đơn giá tự động"><div className="rounded-xl bg-[#e6eee9] px-3 py-2.5 text-sm font-bold text-[#123d32]">{fmt(product?.salePrice||0)}</div></Field><Field label="Đã cọc"><input inputMode="numeric" type="number" className={fieldClass} value={f.deposit} onChange={e=>setF({...f,deposit:num(e.target.value)})}/></Field><Field label="Phí ship khách trả"><input inputMode="numeric" type="number" className={fieldClass} value={f.shippingFee} onChange={e=>setF({...f,shippingFee:num(e.target.value)})}/></Field><Field label="Thanh toán"><select className={fieldClass} value={f.payment} onChange={e=>setF({...f,payment:e.target.value as Order["payment"]})}><option>Chưa thanh toán</option><option>Đã thanh toán</option></select></Field><Field label="Tình trạng"><select className={fieldClass} value={f.status} onChange={e=>setF({...f,status:e.target.value as Order["status"]})}>{["Đã đặt","Đang giao","Đã giao","Đã hủy"].map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Ship thực chi"><input type="number" className={fieldClass} value={f.actualShipping} onChange={e=>setF({...f,actualShipping:num(e.target.value)})}/></Field><Field label="Phí sàn"><input type="number" className={fieldClass} value={f.platformFee} onChange={e=>setF({...f,platformFee:num(e.target.value)})}/></Field><Field label="Địa chỉ" span><input className={fieldClass} value={f.address} onChange={e=>setF({...f,address:e.target.value})}/></Field><div className="sm:col-span-2 rounded-2xl bg-[#f2ead9] p-4"><Line label="Tổng đơn" value={fmt(total)}/><div className="mt-2"><Line label="Còn thu khi giao" value={fmt(Math.max(0,total-f.deposit))}/></div></div><div className="flex gap-2 sm:col-span-2"><button type="button" className="secondary-button flex-1" onClick={onClose}>Hủy</button><button className="primary-button flex-1 justify-center"><Check size={17}/>Lưu đơn</button></div></form></ModalFrame>;
+function Orders({
+  data,
+  setData,
+  search,
+  setSearch,
+  onAdd,
+}: {
+  data: AppState;
+  setData: React.Dispatch<React.SetStateAction<AppState>>;
+  search: string;
+  setSearch: (v: string) => void;
+  onAdd: () => void;
+}) {
+  const rows = data.orders
+    .filter((o) =>
+      `${o.customer} ${o.phone} ${o.sku}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+    )
+    .slice()
+    .reverse();
+  const update = (id: string, patch: Partial<Order>) =>
+    setData((s) => ({
+      ...s,
+      orders: s.orders.map((o) => (o.id === id ? { ...o, ...patch } : o)),
+    }));
+  const remove = (id: string) =>
+    setData((s) => ({ ...s, orders: s.orders.filter((o) => o.id !== id) }));
+  return (
+    <div className="space-y-5">
+      <Toolbar
+        title="Danh sách đơn hàng"
+        count={rows.length}
+        search={search}
+        onSearch={setSearch}
+        addLabel="Tạo đơn"
+        onAdd={onAdd}
+      />
+      <div className="hidden overflow-x-auto rounded-3xl border border-black/8 bg-white md:block">
+        <table className="data-table min-w-[1180px]">
+          <thead>
+            <tr>
+              <th>Ngày</th>
+              <th>Khách hàng</th>
+              <th>Địa chỉ</th>
+              <th>SKU</th>
+              <th>SL</th>
+              <th>Đơn giá</th>
+              <th>Cọc</th>
+              <th>Tổng đơn</th>
+              <th>Thanh toán</th>
+              <th>Trạng thái</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((o) => (
+              <tr key={o.id}>
+                <td>{o.orderDate.split("-").reverse().join("/")}</td>
+                <td>
+                  <strong>{o.customer || "—"}</strong>
+                  <small>{o.phone}</small>
+                </td>
+                <td className="max-w-[240px] whitespace-normal">
+                  <span>{o.address || "Chưa nhập địa chỉ"}</span>
+                </td>
+                <td>
+                  <span className="sku">{o.sku}</span>
+                </td>
+                <td>{o.quantity}</td>
+                <td>{fmt(productFor(data.products, o.sku)?.salePrice ?? 0)}</td>
+                <td>{fmt(o.deposit)}</td>
+                <td>
+                  <strong>{fmt(orderTotal(o, data.products))}</strong>
+                </td>
+                <td>
+                  <select
+                    value={o.payment}
+                    onChange={(e) =>
+                      update(o.id, {
+                        payment: e.target.value as Order["payment"],
+                      })
+                    }
+                  >
+                    <option>Chưa thanh toán</option>
+                    <option>Đã thanh toán</option>
+                  </select>
+                </td>
+                <td>
+                  <select
+                    value={o.status}
+                    onChange={(e) =>
+                      update(o.id, {
+                        status: e.target.value as Order["status"],
+                        collectedDate:
+                          e.target.value === "Đã giao"
+                            ? o.collectedDate ||
+                              new Date().toISOString().slice(0, 10)
+                            : o.collectedDate,
+                      })
+                    }
+                  >
+                    {["Đã đặt", "Đang giao", "Đã giao", "Đã hủy"].map((x) => (
+                      <option key={x}>{x}</option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <button
+                    className="icon-button danger"
+                    onClick={() => remove(o.id)}
+                    aria-label="Xóa"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="grid gap-3 md:hidden">
+        {rows.map((o) => (
+          <div key={o.id} className="panel !p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <span className="sku">{o.sku}</span>
+                <h3 className="mt-2 font-semibold">
+                  {o.customer || "Khách chưa nhập tên"}
+                </h3>
+                <p className="text-xs text-[#7a8984]">
+                  {o.orderDate.split("-").reverse().join("/")} · {o.quantity} SP
+                  · {fmt(orderTotal(o, data.products))}
+                </p>
+                <p className="mt-2 text-sm text-[#526861]">
+                  {o.address || "Chưa nhập địa chỉ"}
+                </p>
+              </div>
+              <button
+                className="icon-button danger"
+                onClick={() => remove(o.id)}
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <select
+                value={o.payment}
+                onChange={(e) =>
+                  update(o.id, { payment: e.target.value as Order["payment"] })
+                }
+              >
+                <option>Chưa thanh toán</option>
+                <option>Đã thanh toán</option>
+              </select>
+              <select
+                value={o.status}
+                onChange={(e) =>
+                  update(o.id, {
+                    status: e.target.value as Order["status"],
+                    collectedDate:
+                      e.target.value === "Đã giao"
+                        ? o.collectedDate ||
+                          new Date().toISOString().slice(0, 10)
+                        : o.collectedDate,
+                  })
+                }
+              >
+                {["Đã đặt", "Đang giao", "Đã giao", "Đã hủy"].map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
+            </div>
+            {o.status === "Đã hủy" && (
+              <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
+                Đơn đã hủy, số lượng được trả lại tồn kho.
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
-function ProductModal({onClose,onSave}:{onClose:()=>void;onSave:(p:Product)=>void}){const [f,setF]=useState({importDate:new Date().toISOString().slice(0,10),sku:"",name:"",quantityIn:1,unitCost:0,listPrice:0,salePrice:0,plannedAds:0});const submit=(e:React.FormEvent)=>{e.preventDefault();if(!f.sku)return;onSave({id:uid(),...f,sku:f.sku.trim().toUpperCase()});};return <ModalFrame title="Thêm sản phẩm / SKU" onClose={onClose}><form onSubmit={submit} className="grid gap-4 sm:grid-cols-2"><Field label="Ngày nhập"><input required type="date" className={fieldClass} value={f.importDate} onChange={e=>setF({...f,importDate:e.target.value})}/></Field><Field label="Mã SKU"><input required className={fieldClass} value={f.sku} onChange={e=>setF({...f,sku:e.target.value})} placeholder="AURA-HONG-01"/></Field><Field label="Tên sản phẩm" span><input className={fieldClass} value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></Field><Field label="Số lượng nhập"><input min="1" type="number" className={fieldClass} value={f.quantityIn} onChange={e=>setF({...f,quantityIn:num(e.target.value)})}/></Field><Field label="Vốn / 1 SP"><input type="number" className={fieldClass} value={f.unitCost} onChange={e=>setF({...f,unitCost:num(e.target.value)})}/></Field><Field label="Giá niêm yết"><input type="number" className={fieldClass} value={f.listPrice} onChange={e=>setF({...f,listPrice:num(e.target.value)})}/></Field><Field label="Giá bán"><input type="number" className={fieldClass} value={f.salePrice} onChange={e=>setF({...f,salePrice:num(e.target.value)})}/></Field><Field label="Ads dự kiến"><input type="number" className={fieldClass} value={f.plannedAds} onChange={e=>setF({...f,plannedAds:num(e.target.value)})}/></Field><div className="flex gap-2 sm:col-span-2"><button type="button" className="secondary-button flex-1" onClick={onClose}>Hủy</button><button className="primary-button flex-1 justify-center"><PackagePlus size={17}/>Thêm SKU</button></div></form></ModalFrame>;}
-function AdModal({onClose,onSave}:{onClose:()=>void;onSave:(a:AdSpend)=>void}){const [f,setF]=useState({date:new Date().toISOString().slice(0,10),channel:"Facebook",budget:0,actualSpend:0});return <ModalFrame title="Thêm chi phí Ads" onClose={onClose}><form onSubmit={e=>{e.preventDefault();onSave({id:uid(),...f})}} className="grid gap-4 sm:grid-cols-2"><Field label="Ngày"><input required type="date" className={fieldClass} value={f.date} onChange={e=>setF({...f,date:e.target.value})}/></Field><Field label="Kênh"><select className={fieldClass} value={f.channel} onChange={e=>setF({...f,channel:e.target.value})}><option>Facebook</option><option>TikTok</option><option>Shopee</option><option>Google</option><option>Khác</option></select></Field><Field label="Ngân sách"><input type="number" className={fieldClass} value={f.budget} onChange={e=>setF({...f,budget:num(e.target.value)})}/></Field><Field label="Thực chi"><input type="number" className={fieldClass} value={f.actualSpend} onChange={e=>setF({...f,actualSpend:num(e.target.value)})}/></Field><div className="flex gap-2 sm:col-span-2"><button type="button" className="secondary-button flex-1" onClick={onClose}>Hủy</button><button className="primary-button flex-1 justify-center"><Check size={17}/>Lưu chi phí</button></div></form></ModalFrame>;}
+
+function Products({
+  data,
+  setData,
+  onAdd,
+}: {
+  data: AppState;
+  setData: React.Dispatch<React.SetStateAction<AppState>>;
+  onAdd: () => void;
+}) {
+  const remove = (id: string) =>
+    setData((s) => ({ ...s, products: s.products.filter((p) => p.id !== id) }));
+  return (
+    <div className="space-y-5">
+      <Toolbar
+        title="Sản phẩm & tồn kho"
+        count={data.products.length}
+        addLabel="Thêm SKU"
+        onAdd={onAdd}
+      />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {data.products.map((p) => {
+          const ordered = data.orders
+            .filter((o) => o.sku === p.sku && isEffective(o))
+            .reduce((s, o) => s + o.quantity, 0);
+          const stock = Math.max(0, p.quantityIn - ordered);
+          const paidOrders = data.orders.filter(
+            (o) => o.sku === p.sku && isCollected(o),
+          );
+          const revenue = paidOrders.reduce(
+            (s, o) => s + collectedRevenue(o, data.products),
+            0,
+          );
+          const soldCost = paidOrders.reduce(
+            (s, o) => s + o.quantity * p.unitCost,
+            0,
+          );
+          const orderExpenses = paidOrders.reduce(
+            (s, o) => s + o.actualShipping + o.platformFee,
+            0,
+          );
+          const revenueAfterAds = revenue - p.plannedAds;
+          const profitAfterAds = revenueAfterAds - soldCost - orderExpenses;
+          return (
+            <article key={p.id} className="panel">
+              <div className="flex justify-between">
+                <div>
+                  <span className="sku">{p.sku}</span>
+                  <h3 className="mt-3 font-serif text-xl font-semibold">
+                    {p.name || "Chưa đặt tên"}
+                  </h3>
+                  <p className="text-xs text-[#7a8984]">
+                    Nhập {p.importDate.split("-").reverse().join("/")}
+                  </p>
+                </div>
+                <button
+                  className="icon-button danger"
+                  onClick={() => remove(p.id)}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+              <div className="my-5 grid grid-cols-3 gap-2 rounded-2xl bg-[#f6f5ef] p-3 text-center">
+                <SmallStat label="Đã nhập" value={p.quantityIn} />
+                <SmallStat label="Có đơn" value={ordered} />
+                <SmallStat label="Tồn" value={stock} />
+              </div>
+              <div className="space-y-2 text-sm">
+                <Line label="Vốn / SP" value={fmt(p.unitCost)} />
+                <Line label="Giá bán tự động" value={fmt(p.salePrice)} />
+                <Line label="Vốn nhập" value={fmt(p.quantityIn * p.unitCost)} />
+                <div className="my-3 border-t border-black/8" />
+                <Line label="Doanh thu đã thu" value={fmt(revenue)} />
+                <Line label="Ads phân bổ" value={fmt(p.plannedAds)} />
+                <Line label="Doanh thu sau Ads" value={fmt(revenueAfterAds)} />
+                <div
+                  className={`mt-3 rounded-xl px-3 py-2 ${profitAfterAds >= 0 ? "bg-[#e5eee8] text-[#17624f]" : "bg-red-50 text-[#b94739]"}`}
+                >
+                  <Line
+                    label="Lãi sau giá vốn & Ads"
+                    value={fmt(profitAfterAds)}
+                  />
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+function Ads({
+  data,
+  setData,
+  month,
+  onAdd,
+}: {
+  data: AppState;
+  setData: React.Dispatch<React.SetStateAction<AppState>>;
+  month: string;
+  onAdd: () => void;
+}) {
+  const rows = data.ads
+    .filter((a) => inMonth(a.date, month))
+    .slice()
+    .reverse();
+  const total = rows.reduce((s, a) => s + a.actualSpend, 0);
+  return (
+    <div className="space-y-5">
+      <Toolbar
+        title="Ngân sách quảng cáo"
+        count={rows.length}
+        addLabel="Thêm chi phí"
+        onAdd={onAdd}
+      />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <MetricCard
+          label="Ads thực chi"
+          value={fmt(total)}
+          note={`Trong tháng ${month.slice(5)}/${month.slice(0, 4)}`}
+          icon={Megaphone}
+          tone="gold"
+        />
+        <MetricCard
+          label="Ngân sách"
+          value={fmt(rows.reduce((s, a) => s + a.budget, 0))}
+          note="Tổng ngân sách đã nhập"
+          icon={CircleDollarSign}
+          tone="blue"
+        />
+        <MetricCard
+          label="Chênh lệch"
+          value={fmt(rows.reduce((s, a) => s + a.budget - a.actualSpend, 0))}
+          note="Ngân sách còn lại"
+          icon={TrendingUp}
+          tone="green"
+        />
+      </div>
+      <div className="overflow-hidden rounded-3xl border border-black/8 bg-white">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Ngày</th>
+              <th>Kênh</th>
+              <th>Ngân sách</th>
+              <th>Thực chi</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((a) => (
+              <tr key={a.id}>
+                <td>{a.date.split("-").reverse().join("/")}</td>
+                <td>
+                  <strong>{a.channel}</strong>
+                </td>
+                <td>{fmt(a.budget)}</td>
+                <td>{fmt(a.actualSpend)}</td>
+                <td>
+                  <button
+                    className="icon-button danger"
+                    onClick={() =>
+                      setData((s) => ({
+                        ...s,
+                        ads: s.ads.filter((x) => x.id !== a.id),
+                      }))
+                    }
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+function Daily({ rows, totals }: { rows: DailyRow[]; totals: Derived }) {
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="eyebrow">Đối chiếu theo ngày</p>
+        <h2 className="font-serif text-2xl font-semibold">
+          Lợi nhuận và dòng tiền
+        </h2>
+      </div>
+      <div className="overflow-x-auto rounded-3xl border border-black/8 bg-white">
+        <table className="data-table min-w-[1080px]">
+          <thead>
+            <tr>
+              <th>Ngày</th>
+              <th>Đơn mới</th>
+              <th>DT đơn mới</th>
+              <th>DT đã thu</th>
+              <th>Giá vốn bán</th>
+              <th>Ads</th>
+              <th>Ship</th>
+              <th>Phí sàn</th>
+              <th>Lãi theo đơn</th>
+              <th>Vốn nhập</th>
+              <th>Dòng tiền</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.date}>
+                <td>
+                  <strong>{r.date.split("-").reverse().join("/")}</strong>
+                </td>
+                <td>{r.newOrders}</td>
+                <td>{fmt(r.orderValue)}</td>
+                <td>{fmt(r.revenue)}</td>
+                <td>{fmt(r.cogs)}</td>
+                <td>{fmt(r.ads)}</td>
+                <td>{fmt(r.shipping)}</td>
+                <td>{fmt(r.fees)}</td>
+                <td className={r.profit < 0 ? "negative" : "positive"}>
+                  {fmt(r.profit)}
+                </td>
+                <td>{fmt(r.capitalIn)}</td>
+                <td className={r.cashFlow < 0 ? "negative" : "positive"}>
+                  {fmt(r.cashFlow)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>TỔNG THÁNG</td>
+              <td>{totals.effectiveOrders}</td>
+              <td>—</td>
+              <td>{fmt(totals.revenue)}</td>
+              <td>{fmt(totals.cogs)}</td>
+              <td>{fmt(totals.ads)}</td>
+              <td>{fmt(totals.shipping)}</td>
+              <td>{fmt(totals.fees)}</td>
+              <td>{fmt(totals.profit)}</td>
+              <td>{fmt(totals.capitalIn)}</td>
+              <td>{fmt(totals.cashFlow)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Toolbar({
+  title,
+  count,
+  search,
+  onSearch,
+  addLabel,
+  onAdd,
+}: {
+  title: string;
+  count: number;
+  search?: string;
+  onSearch?: (v: string) => void;
+  addLabel: string;
+  onAdd: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 className="font-serif text-2xl font-semibold">{title}</h2>
+        <p className="text-sm text-[#7a8984]">{count} mục</p>
+      </div>
+      <div className="flex gap-2">
+        {onSearch && (
+          <label className="flex flex-1 items-center gap-2 rounded-xl border border-black/10 bg-white px-3">
+            <Search size={17} />
+            <input
+              className="w-full bg-transparent py-2.5 text-sm outline-none"
+              value={search}
+              onChange={(e) => onSearch(e.target.value)}
+              placeholder="Tìm tên, SĐT, SKU"
+            />
+          </label>
+        )}
+        <button className="primary-button whitespace-nowrap" onClick={onAdd}>
+          <Plus size={17} />
+          {addLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+function Line({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <span className="text-[#76847f]">{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+function ModalFrame({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[#0b211b]/55 p-0 sm:items-center sm:p-5"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-3xl bg-[#fbfaf6] p-5 shadow-2xl sm:max-w-2xl sm:rounded-3xl sm:p-7">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <p className="eyebrow">Nhập dữ liệu</p>
+            <h2 className="font-serif text-2xl font-semibold">{title}</h2>
+          </div>
+          <button className="icon-button" onClick={onClose}>
+            <X size={20} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+const fieldClass =
+  "w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#1f6b57] focus:ring-2 focus:ring-[#1f6b57]/10";
+function Field({
+  label,
+  children,
+  span = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  span?: boolean;
+}) {
+  return (
+    <label className={span ? "sm:col-span-2" : ""}>
+      <span className="mb-1.5 block text-xs font-semibold text-[#526861]">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function OrderModal({
+  products,
+  onClose,
+  onSave,
+}: {
+  products: Product[];
+  onClose: () => void;
+  onSave: (o: Order) => void;
+}) {
+  const [f, setF] = useState({
+    orderDate: new Date().toISOString().slice(0, 10),
+    customer: "",
+    phone: "",
+    address: "",
+    sku: products[0]?.sku || "",
+    size: "",
+    color: "",
+    quantity: 1,
+    deposit: 0,
+    shippingFee: 0,
+    payment: "Chưa thanh toán" as Order["payment"],
+    status: "Đã đặt" as Order["status"],
+    actualShipping: 0,
+    platformFee: 0,
+    note: "",
+  });
+  const product = productFor(products, f.sku);
+  const total = f.quantity * (product?.salePrice || 0) + f.shippingFee;
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!f.sku || f.quantity < 1) return;
+    onSave({
+      id: uid(),
+      ...f,
+      productName: product?.name || "",
+      collectedDate: f.status === "Đã giao" ? f.orderDate : "",
+    });
+  };
+  return (
+    <ModalFrame title="Tạo đơn hàng" onClose={onClose}>
+      <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
+        <Field label="Ngày đặt">
+          <input
+            required
+            type="date"
+            className={fieldClass}
+            value={f.orderDate}
+            onChange={(e) => setF({ ...f, orderDate: e.target.value })}
+          />
+        </Field>
+        <Field label="Mã SKU">
+          <select
+            className={fieldClass}
+            value={f.sku}
+            onChange={(e) => setF({ ...f, sku: e.target.value })}
+          >
+            {products.map((p) => (
+              <option key={p.id} value={p.sku}>
+                {p.sku} — {fmt(p.salePrice)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Họ tên khách">
+          <input
+            className={fieldClass}
+            value={f.customer}
+            onChange={(e) => setF({ ...f, customer: e.target.value })}
+          />
+        </Field>
+        <Field label="Số điện thoại">
+          <input
+            inputMode="tel"
+            className={fieldClass}
+            value={f.phone}
+            onChange={(e) => setF({ ...f, phone: e.target.value })}
+          />
+        </Field>
+        <Field label="Số lượng">
+          <input
+            required
+            min="1"
+            type="number"
+            className={fieldClass}
+            value={f.quantity}
+            onChange={(e) => setF({ ...f, quantity: num(e.target.value) })}
+          />
+        </Field>
+        <Field label="Đơn giá tự động">
+          <div className="rounded-xl bg-[#e6eee9] px-3 py-2.5 text-sm font-bold text-[#123d32]">
+            {fmt(product?.salePrice || 0)}
+          </div>
+        </Field>
+        <Field label="Đã cọc">
+          <input
+            inputMode="numeric"
+            type="number"
+            className={fieldClass}
+            value={f.deposit}
+            onChange={(e) => setF({ ...f, deposit: num(e.target.value) })}
+          />
+        </Field>
+        <Field label="Phí ship khách trả">
+          <input
+            inputMode="numeric"
+            type="number"
+            className={fieldClass}
+            value={f.shippingFee}
+            onChange={(e) => setF({ ...f, shippingFee: num(e.target.value) })}
+          />
+        </Field>
+        <Field label="Thanh toán">
+          <select
+            className={fieldClass}
+            value={f.payment}
+            onChange={(e) =>
+              setF({ ...f, payment: e.target.value as Order["payment"] })
+            }
+          >
+            <option>Chưa thanh toán</option>
+            <option>Đã thanh toán</option>
+          </select>
+        </Field>
+        <Field label="Tình trạng">
+          <select
+            className={fieldClass}
+            value={f.status}
+            onChange={(e) =>
+              setF({ ...f, status: e.target.value as Order["status"] })
+            }
+          >
+            {["Đã đặt", "Đang giao", "Đã giao", "Đã hủy"].map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Ship thực chi">
+          <input
+            type="number"
+            className={fieldClass}
+            value={f.actualShipping}
+            onChange={(e) =>
+              setF({ ...f, actualShipping: num(e.target.value) })
+            }
+          />
+        </Field>
+        <Field label="Phí sàn">
+          <input
+            type="number"
+            className={fieldClass}
+            value={f.platformFee}
+            onChange={(e) => setF({ ...f, platformFee: num(e.target.value) })}
+          />
+        </Field>
+        <Field label="Địa chỉ" span>
+          <input
+            className={fieldClass}
+            value={f.address}
+            onChange={(e) => setF({ ...f, address: e.target.value })}
+          />
+        </Field>
+        <div className="sm:col-span-2 rounded-2xl bg-[#f2ead9] p-4">
+          <Line label="Tổng đơn" value={fmt(total)} />
+          <div className="mt-2">
+            <Line
+              label="Còn thu khi giao"
+              value={fmt(Math.max(0, total - f.deposit))}
+            />
+          </div>
+        </div>
+        <div className="flex gap-2 sm:col-span-2">
+          <button
+            type="button"
+            className="secondary-button flex-1"
+            onClick={onClose}
+          >
+            Hủy
+          </button>
+          <button className="primary-button flex-1 justify-center">
+            <Check size={17} />
+            Lưu đơn
+          </button>
+        </div>
+      </form>
+    </ModalFrame>
+  );
+}
+function ProductModal({
+  onClose,
+  onSave,
+}: {
+  onClose: () => void;
+  onSave: (p: Product) => void;
+}) {
+  const [f, setF] = useState({
+    importDate: new Date().toISOString().slice(0, 10),
+    sku: "",
+    name: "",
+    quantityIn: 1,
+    unitCost: 0,
+    listPrice: 0,
+    salePrice: 0,
+    plannedAds: 0,
+  });
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!f.sku) return;
+    onSave({ id: uid(), ...f, sku: f.sku.trim().toUpperCase() });
+  };
+  return (
+    <ModalFrame title="Thêm sản phẩm / SKU" onClose={onClose}>
+      <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
+        <Field label="Ngày nhập">
+          <input
+            required
+            type="date"
+            className={fieldClass}
+            value={f.importDate}
+            onChange={(e) => setF({ ...f, importDate: e.target.value })}
+          />
+        </Field>
+        <Field label="Mã SKU">
+          <input
+            required
+            className={fieldClass}
+            value={f.sku}
+            onChange={(e) => setF({ ...f, sku: e.target.value })}
+            placeholder="AURA-HONG-01"
+          />
+        </Field>
+        <Field label="Tên sản phẩm" span>
+          <input
+            className={fieldClass}
+            value={f.name}
+            onChange={(e) => setF({ ...f, name: e.target.value })}
+          />
+        </Field>
+        <Field label="Số lượng nhập">
+          <input
+            min="1"
+            type="number"
+            className={fieldClass}
+            value={f.quantityIn}
+            onChange={(e) => setF({ ...f, quantityIn: num(e.target.value) })}
+          />
+        </Field>
+        <Field label="Vốn / 1 SP">
+          <input
+            type="number"
+            className={fieldClass}
+            value={f.unitCost}
+            onChange={(e) => setF({ ...f, unitCost: num(e.target.value) })}
+          />
+        </Field>
+        <Field label="Giá niêm yết">
+          <input
+            type="number"
+            className={fieldClass}
+            value={f.listPrice}
+            onChange={(e) => setF({ ...f, listPrice: num(e.target.value) })}
+          />
+        </Field>
+        <Field label="Giá bán">
+          <input
+            type="number"
+            className={fieldClass}
+            value={f.salePrice}
+            onChange={(e) => setF({ ...f, salePrice: num(e.target.value) })}
+          />
+        </Field>
+        <Field label="Ads dự kiến">
+          <input
+            type="number"
+            className={fieldClass}
+            value={f.plannedAds}
+            onChange={(e) => setF({ ...f, plannedAds: num(e.target.value) })}
+          />
+        </Field>
+        <div className="flex gap-2 sm:col-span-2">
+          <button
+            type="button"
+            className="secondary-button flex-1"
+            onClick={onClose}
+          >
+            Hủy
+          </button>
+          <button className="primary-button flex-1 justify-center">
+            <PackagePlus size={17} />
+            Thêm SKU
+          </button>
+        </div>
+      </form>
+    </ModalFrame>
+  );
+}
+function AdModal({
+  onClose,
+  onSave,
+}: {
+  onClose: () => void;
+  onSave: (a: AdSpend) => void;
+}) {
+  const [f, setF] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    channel: "Facebook",
+    budget: 0,
+    actualSpend: 0,
+  });
+  return (
+    <ModalFrame title="Thêm chi phí Ads" onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave({ id: uid(), ...f });
+        }}
+        className="grid gap-4 sm:grid-cols-2"
+      >
+        <Field label="Ngày">
+          <input
+            required
+            type="date"
+            className={fieldClass}
+            value={f.date}
+            onChange={(e) => setF({ ...f, date: e.target.value })}
+          />
+        </Field>
+        <Field label="Kênh">
+          <select
+            className={fieldClass}
+            value={f.channel}
+            onChange={(e) => setF({ ...f, channel: e.target.value })}
+          >
+            <option>Facebook</option>
+            <option>TikTok</option>
+            <option>Shopee</option>
+            <option>Google</option>
+            <option>Khác</option>
+          </select>
+        </Field>
+        <Field label="Ngân sách">
+          <input
+            type="number"
+            className={fieldClass}
+            value={f.budget}
+            onChange={(e) => setF({ ...f, budget: num(e.target.value) })}
+          />
+        </Field>
+        <Field label="Thực chi">
+          <input
+            type="number"
+            className={fieldClass}
+            value={f.actualSpend}
+            onChange={(e) => setF({ ...f, actualSpend: num(e.target.value) })}
+          />
+        </Field>
+        <div className="flex gap-2 sm:col-span-2">
+          <button
+            type="button"
+            className="secondary-button flex-1"
+            onClick={onClose}
+          >
+            Hủy
+          </button>
+          <button className="primary-button flex-1 justify-center">
+            <Check size={17} />
+            Lưu chi phí
+          </button>
+        </div>
+      </form>
+    </ModalFrame>
+  );
+}
